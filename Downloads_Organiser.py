@@ -4,33 +4,48 @@ import argparse
 import json
 from pathlib import Path
 
-# Define categories and extensions
+# === CONFIG ===
 CATEGORIES = {
     "Documents": [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".odt"],
     "Images": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp"],
     "Zip Files": [".zip", ".rar", ".7z", ".tar", ".gz"],
     "Installers": [".exe", ".msi", ".dmg", ".pkg", ".deb"],
 }
+LOG_FILENAME = ".organizer_log.json"
 
 EXTENSION_TO_CATEGORY = {
     ext: category for category, extensions in CATEGORIES.items() for ext in extensions
 }
 
-LOG_FILENAME = ".organizer_log.json"
+def get_log_path():
+    return Path.home() / "Downloads" / LOG_FILENAME
 
-# Organise Downloads folder function
-# Additional option to do a dry run showing all the changes that will be made before you commit
+def load_log():
+    log_path = get_log_path()
+    if log_path.exists():
+        with open(log_path, "r") as f:
+            return json.load(f)
+    return []
+
+def save_log(log_data):
+    log_path = get_log_path()
+    with open(log_path, "w") as f:
+        json.dump(log_data, f, indent=2)
+
 def organize_downloads(dry_run=False):
     downloads_path = Path.home() / "Downloads"
-    log_path = downloads_path / LOG_FILENAME
+    log = load_log()
     move_log = []
 
+    # Create target folders
     for category in list(CATEGORIES.keys()) + ["Other"]:
-        category_path = downloads_path / category
-        category_path.mkdir(parents=True, exist_ok=True)
+        (downloads_path / category).mkdir(parents=True, exist_ok=True)
 
     for item in downloads_path.iterdir():
         if item.is_file():
+            if item.name == LOG_FILENAME:
+                continue  # Skip the log file itself
+
             ext = item.suffix.lower()
             category = EXTENSION_TO_CATEGORY.get(ext, "Other")
             destination = downloads_path / category / item.name
@@ -50,30 +65,27 @@ def organize_downloads(dry_run=False):
                 })
                 print(f"Moved: {item.name} -> {category}/")
 
+    # Save batch if real run
     if not dry_run and move_log:
-        with open(log_path, "w") as log_file:
-            json.dump(move_log, log_file, indent=2)
+        next_batch_id = (log[-1]["batch_id"] + 1) if log else 1
+        log.append({"batch_id": next_batch_id, "moves": move_log})
+        save_log(log)
 
-# Function to revert the effects of the organise_downloads function
 def undo_moves():
-    downloads_path = Path.home() / "Downloads"
-    log_path = downloads_path / LOG_FILENAME
-
-    if not log_path.exists():
-        print("No move log found. Nothing to undo.")
+    log = load_log()
+    if not log:
+        print("❌ Nothing to undo.")
         return
 
-    with open(log_path, "r") as log_file:
-        move_log = json.load(log_file)
+    last_batch = log.pop()
+    print(f"⏪ Undoing batch #{last_batch['batch_id']}")
 
-    for entry in move_log:
-        src = Path(entry["to"])
-        dst = Path(entry["from"])
+    for move in reversed(last_batch["moves"]):
+        src = Path(move["to"])
+        dst = Path(move["from"])
 
         if src.exists():
-            dst_parent = dst.parent
-            dst_parent.mkdir(parents=True, exist_ok=True)
-
+            dst.parent.mkdir(parents=True, exist_ok=True)
             counter = 1
             original_dst = dst
             while dst.exists():
@@ -81,18 +93,21 @@ def undo_moves():
                 counter += 1
 
             shutil.move(str(src), str(dst))
-            print(f"Restored: {src.name} -> {dst}")
-
+            print(f"✅ Restored: {src.name} -> {dst}")
         else:
-            print(f"Skipped missing file: {src}")
+            print(f"⚠️ File missing: {src} — cannot restore.")
 
-    log_path.unlink()
-    print("🗑️ Undo complete. Log file deleted.")
+    # Update or remove log
+    if log:
+        save_log(log)
+    else:
+        get_log_path().unlink()
+        print("🗑️ All batches undone. Log file removed.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Organize Downloads Folder")
-    parser.add_argument("--dry-run", action="store_true", help="Preview actions without moving files")
-    parser.add_argument("--undo", action="store_true", help="Undo last file organization")
+    parser.add_argument("--dry-run", action="store_true", help="Preview of what would be moved")
+    parser.add_argument("--undo", action="store_true", help="Undo the last organization batch")
     args = parser.parse_args()
 
     if args.undo:
