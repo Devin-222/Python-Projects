@@ -1,19 +1,20 @@
 print("""Calculator:
-      +---------+
-      0
-      +---------+
-      | [+] [-] |
-      | [*] [/] |
-      +---------+
-      """)
++---------+
+0
++---------+
+| [+] [-] |
+| [*] [/] |
++---------+
+""")
 
-print("First number: 558.28")
+num1 = float(input("First number: "))
 print("Operator: +")
-print("Second number: 452.64")
+num2 = float(input("Second number: "))
+total = num1 + num2
 
 print()
 
 print("Answer:")
 print("+---------+")
-print(558.28 + 452.64)
+print(total)
 print("+---------+")
